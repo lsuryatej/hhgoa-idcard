@@ -273,43 +273,59 @@ export default function Generator() {
     }
   };
 
-  const openIntent = (url?: string) => {
+  const intentUrl = (url?: string) => {
     const params = new URLSearchParams({ text: caption });
     if (url) params.set("url", url);
-    window.open(
-      `https://x.com/intent/post?${params.toString()}`,
-      "_blank",
-      "noopener,noreferrer"
-    );
+    return `https://x.com/intent/post?${params.toString()}`;
   };
 
   const handleShare = async () => {
     setError(null);
     setBusy("Preparing share");
+
+    // Open the tab now, synchronously in the click handler, and point it
+    // somewhere later. Every await below (canvas encode, native share sheet,
+    // the upload fetch) can burn the "direct result of a user gesture" window
+    // browsers require — open after any of that and it silently becomes a
+    // blocked popup instead of a new tab, which is exactly the "share does
+    // nothing" failure this exists to prevent.
+    let tab: Window | null = null;
+    try {
+      tab = window.open("", "_blank");
+    } catch {
+      tab = null;
+    }
+
     try {
       const blob = await getBlob();
       const file = new File([blob], filename, { type: "image/png" });
 
-      // Phones get the real file handed straight to the X app: one tap, image
-      // already attached, no download step in between.
+      // Phones get the real file handed straight to the OS share sheet: one
+      // tap, image already attached, no download step in between. But the
+      // sheet only lists apps that are actually installed — if X isn't one
+      // of them, the person has no way to finish from there and either picks
+      // "Cancel" or nothing happens. Either way we must not treat that as
+      // done: fall through to the browser-intent route below so there is
+      // always a path that works with zero apps installed.
       const nav = navigator as Navigator & {
         canShare?: (d: ShareData) => boolean;
       };
       if (nav.canShare?.({ files: [file] })) {
         try {
           await nav.share({ files: [file], text: caption });
+          tab?.close();
           setBusy(null);
           return;
-        } catch (err) {
-          if ((err as Error)?.name === "AbortError") {
-            setBusy(null);
-            return;
-          }
-          // Fall through to the link route.
+        } catch {
+          // Cancelled, unsupported target, or any other failure — fall
+          // through to the link route rather than leaving the user stuck.
         }
       }
 
-      // Desktop: upload, then post a link whose preview renders the graphic.
+      // Guaranteed browser path: works on desktop and mobile, with or
+      // without X installed. Uploads for a link whose preview renders the
+      // graphic, downloads the PNG, and points the already-open tab at
+      // x.com so nothing gets blocked as a popup.
       setBusy("Uploading");
       let shareUrl: string | undefined;
       try {
@@ -330,13 +346,21 @@ export default function Generator() {
       }
 
       download(blob);
-      openIntent(shareUrl);
+      const url = intentUrl(shareUrl);
+      if (tab) {
+        tab.location.href = url;
+      } else {
+        // The early window.open was itself blocked (rare, but some browsers
+        // block even the synchronous call). Last resort, may also be blocked.
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
       if (!shareUrl) {
         setError(
           "Posted without a link preview, so attach the downloaded PNG to your tweet."
         );
       }
     } catch {
+      tab?.close();
       setError("Share failed. Download the image and post it manually.");
     } finally {
       setBusy(null);

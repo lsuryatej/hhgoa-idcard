@@ -52,6 +52,33 @@ body {
   overflow-x: hidden;
 }
 
+/* Scattered stickers over the green, the way hhgoa.com never leaves its
+   background flat (Sun_rise.png, footer_trees.png, hackers.png all carry
+   illustration into the field, not just the foreground). Fixed so it reads
+   as one consistent backdrop rather than repeating oddly per scroll depth. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0.28;
+  background-repeat: no-repeat;
+  background-image: url("/brand/sticker-sun.svg"), url("/brand/sticker-palm.svg"),
+    url("/brand/sticker-palm.svg"), url("/brand/sticker-wave.svg"),
+    url("/brand/sticker-star.svg"), url("/brand/sticker-star.svg"),
+    url("/brand/sticker-camera.svg");
+  background-position: 96% -3%, -5% 6%, 103% 60%, 50% 100%, 15% 78%, 80% 14%, 90% 40%;
+  background-size: 220px, 150px, 170px, 820px, 40px, 30px, 100px;
+}
+
+@media (max-width: 720px) {
+  body::before {
+    opacity: 0.2;
+    background-size: 140px, 100px, 110px, 520px, 28px, 22px, 70px;
+  }
+}
+
 /* Paper grain over the whole page: fixed layer, never in a scroll container. */
 body::after {
   content: "";
