@@ -38,7 +38,7 @@ export const SIZES: Record<Format, { w: number; h: number }> = {
 
 /* ------------------------------------------------------------------ assets */
 
-type Brand = { goa: HTMLImageElement; tape: HTMLImageElement };
+type Brand = { goa: HTMLImageElement; tape: HTMLImageElement; credit: HTMLImageElement };
 let brandPromise: Promise<Brand> | null = null;
 
 export function loadBrand(): Promise<Brand> {
@@ -46,7 +46,8 @@ export function loadBrand(): Promise<Brand> {
     brandPromise = Promise.all([
       loadImageElement("/brand/goa_hindi.svg"),
       loadImageElement("/brand/tape.svg"),
-    ]).then(([goa, tape]) => ({ goa, tape }));
+      loadImageElement("/brand/studio-credit.svg"),
+    ]).then(([goa, tape, credit]) => ({ goa, tape, credit }));
   }
   return brandPromise;
 }
@@ -73,9 +74,11 @@ export function loadFonts(): Promise<void> {
 
 /* ----------------------------------------------------------------- helpers */
 
-// The goa_hindi.svg artboard is 181x180 but the mark only occupies the top-left
-// corner of it. These are the measured content bounds.
-const GOA_CROP = { x: 0, y: 0, w: 110, h: 112 };
+// The goa_hindi.svg artboard is 181x180 and the mark fills essentially all of
+// it (alpha-scanned the rendered bitmap to confirm: content runs 0,0.1 to
+// 180.6,179.9). An earlier eyeballed crop of "110x112" chopped off the right
+// third and the descenders, which is why the sticker rendered half-cut.
+const GOA_CROP = { x: 0, y: 0, w: 181, h: 180 };
 
 function drawGoaMark(
   ctx: CanvasRenderingContext2D,
@@ -496,7 +499,8 @@ function drawFootline(
   shell: Shell,
   w: number,
   seed: string,
-  leftLabel: string
+  leftLabel: string,
+  brand: Brand
 ) {
   const baseY = shell.paperY + shell.paperH - 104;
 
@@ -517,9 +521,17 @@ function drawFootline(
   ctx.textBaseline = "top";
   tracked(ctx, "#FRAMEINGOA", shell.innerX + shell.innerW, baseY + 8, 3, "right");
 
-  ctx.fillStyle = INK;
-  ctx.font = `700 22px ${MONO}`;
-  tracked(ctx, "2:47 PM STUDIO", shell.innerX + shell.innerW, baseY + 54, 4, "right");
+  // Studio credit mark (the real "2:47 pm Studio" asset, not typeset text —
+  // its letterforms are hand-drawn, not something Victor Mono can fake).
+  const creditH = 30;
+  const creditW = creditH * (brand.credit.naturalWidth / brand.credit.naturalHeight);
+  ctx.drawImage(
+    brand.credit,
+    shell.innerX + shell.innerW - creditW,
+    baseY + 48,
+    creditW,
+    creditH
+  );
 
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
@@ -607,7 +619,8 @@ function renderCard(
     shell,
     w,
     `${input.name}${input.stack}`,
-    `PASS NO. ${passNumber(input.name, input.stack)}`
+    `PASS NO. ${passNumber(input.name, input.stack)}`,
+    brand
   );
 
   grain(ctx, w, h, 0.045);
@@ -703,7 +716,7 @@ function renderCrew(
 
   drawGoaMark(ctx, brand.goa, shell.paperX + shell.paperW - 40, shell.paperY + 46, 124, -14);
 
-  drawFootline(ctx, shell, w, team, `CREW PASS · ${n} BUILDERS`);
+  drawFootline(ctx, shell, w, team, `CREW PASS · ${n} BUILDERS`, brand);
 
   grain(ctx, w, h, 0.045);
 }

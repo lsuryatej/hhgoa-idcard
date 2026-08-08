@@ -366,22 +366,30 @@ export default function Generator() {
             />
           ) : (
             <div className="stage-empty">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/hanging-frames.svg" alt="" aria-hidden="true" />
               <p>Drop a photo to see your frame</p>
             </div>
           )}
-          {busy && <div className="stage-busy">{busy}…</div>}
+          {busy && (
+            <div className="stage-busy">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/goa_hindi.svg" alt="" aria-hidden="true" />
+              <span>{busy}…</span>
+            </div>
+          )}
         </div>
 
         <div className="actions">
           <button
-            className="btn btn-primary"
+            className={`btn btn-primary${hasArt && !busy ? " btn-glow" : ""}`}
             onClick={handleDownload}
             disabled={!hasArt || !!busy}
           >
             Download PNG
           </button>
           <button
-            className="btn btn-x"
+            className={`btn btn-x${hasArt && !busy ? " btn-glow" : ""}`}
             onClick={handleShare}
             disabled={!hasArt || !!busy}
           >

@@ -89,6 +89,11 @@ body::after {
   flex-wrap: wrap;
 }
 
+.wordmark-wrap {
+  position: relative;
+  display: inline-block;
+}
+
 .wordmark {
   font-family: var(--display);
   font-weight: 700;
@@ -98,6 +103,24 @@ body::after {
   color: var(--yellow);
   text-shadow: 3px 3px 0 var(--ink);
   margin: 0;
+}
+
+/* The one decorative floating element on the page — restrained on purpose. */
+.wordmark-sticker {
+  position: absolute;
+  top: -14px;
+  right: -34px;
+  width: 46px;
+  height: auto;
+  transform: rotate(12deg);
+  animation: float 4.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@media (max-width: 560px) {
+  .wordmark-sticker {
+    display: none;
+  }
 }
 
 .meta-line {
@@ -340,7 +363,13 @@ body::after {
   place-items: center;
   text-align: center;
   padding: 32px;
-  gap: 10px;
+  gap: 18px;
+}
+
+.stage-empty img {
+  width: min(72%, 300px);
+  height: auto;
+  animation: float 5s ease-in-out infinite;
 }
 
 .stage-empty p {
@@ -354,12 +383,49 @@ body::after {
 .stage-busy {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
   background: rgba(7, 79, 43, 0.86);
   font-size: 11px;
   letter-spacing: 0.24em;
   text-transform: uppercase;
+}
+
+.stage-busy img {
+  width: 56px;
+  height: auto;
+  animation: spin 1.6s linear infinite;
+}
+
+/* ---------- motion (restrained: two signature moves, not the whole vocabulary) ---------- */
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulseGlow {
+  0%,
+  100% {
+    box-shadow: 4px 5px 0 rgba(0, 0, 0, 0.4), 0 0 0 rgba(254, 225, 1, 0);
+  }
+  50% {
+    box-shadow: 4px 5px 0 rgba(0, 0, 0, 0.4), 0 0 22px rgba(254, 225, 1, 0.55);
+  }
 }
 
 /* ---------- actions ---------- */
@@ -413,6 +479,12 @@ body::after {
   color: var(--paper);
 }
 
+/* Applied only once art exists and nothing is busy — the moment the two
+   actions actually matter. Stops drawing attention once you've used either. */
+.btn-glow:not(:disabled) {
+  animation: pulseGlow 2.2s ease-in-out infinite;
+}
+
 .notice {
   margin-top: 14px;
   font-size: 11px;
@@ -460,4 +532,16 @@ body::after {
 
 .footer a {
   color: inherit;
+}
+
+.footer-credit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.footer-credit img {
+  height: 16px;
+  width: auto;
+  opacity: 0.9;
 }

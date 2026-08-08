@@ -28,9 +28,18 @@ export default async function SharePage({
 
   return (
     <main className="share-wrap">
-      <h1 className="wordmark" style={{ fontSize: "clamp(34px,11vw,66px)" }}>
-        FRAME IN GOA
-      </h1>
+      <div className="wordmark-wrap">
+        <h1 className="wordmark" style={{ fontSize: "clamp(34px,11vw,66px)" }}>
+          FRAME IN GOA
+        </h1>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          className="wordmark-sticker"
+          src="/brand/goa_hindi.svg"
+          alt=""
+          aria-hidden="true"
+        />
+      </div>
       <p className="meta-line" style={{ marginBottom: 26 }}>
         Goa, India · 28–31 Oct 2026
       </p>
@@ -49,6 +58,10 @@ export default async function SharePage({
 
       <p className="notice">
         Built for the HH Goa 2026 shortlisting task. #FrameInGoa
+      </p>
+      <p className="notice footer-credit" style={{ justifyContent: "center" }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/brand/studio-credit.svg" alt="2:47 pm Studio" />
       </p>
     </main>
   );
