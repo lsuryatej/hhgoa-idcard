@@ -3,6 +3,7 @@ import "./globals.css";
 
 const siteUrl =
   process.env.NEXT_PUBLIC_SITE_URL || "https://hhgoa-idcard-zeta.vercel.app";
+const ogImageUrl = `${siteUrl}/opengraph-image`;
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -37,7 +38,7 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: "/opengraph-image",
+        url: ogImageUrl,
         width: 1200,
         height: 630,
         alt: "Hacker House Goa 2026 Frame & Builder ID Card Generator",
@@ -49,7 +50,7 @@ export const metadata: Metadata = {
     title: "Frame in Goa — Hacker House Goa 2026",
     description:
       "Drop in a photo, get an HH Goa 2026 profile frame or builder pass, and post it to X.",
-    images: ["/opengraph-image"],
+    images: [ogImageUrl],
   },
 };
 
