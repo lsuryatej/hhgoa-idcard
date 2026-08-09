@@ -77,9 +77,30 @@ export default function Generator() {
   const hasArt = isCrew ? members.length > 0 : photo !== null;
 
   useEffect(() => {
+    // document.fonts.ready has no time bound and can hang indefinitely on
+    // some mobile browsers/network conditions — the photo thumbnail (a
+    // separate small canvas that doesn't wait on `ready`) would render fine
+    // while the big canvas silently never painted anything, with no error.
+    // A fallback timeout means the canvas always gets a first paint, even
+    // with a fallback system font if the real one is still loading; the
+    // font upgrades on the next redraw (rotate, zoom, any input change).
+    let settled = false;
+    const fallback = window.setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        setReady(true);
+      }
+    }, 3000);
     Promise.all([loadFonts(), loadBrand()])
-      .then(() => setReady(true))
-      .catch(() => setReady(true));
+      .catch(() => {})
+      .finally(() => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(fallback);
+        }
+        setReady(true);
+      });
+    return () => clearTimeout(fallback);
   }, []);
 
   // Text fields survive an accidental reload or tab close — the photo itself
@@ -287,17 +308,41 @@ export default function Generator() {
     return `hh-goa-2026-${format}-${slug(who)}.png`;
   }, [format, isCrew, teamName, name]);
 
-  const caption = useMemo(() => {
+  // Three pre-written captions per format, plus room to write your own — the
+  // export always carries whichever one is picked, right up to the moment
+  // Share is pressed, so a name/stack edit after picking still updates the
+  // preset text (only the custom box goes stale, which is expected).
+  const captionPresets = useMemo(() => {
     if (isCrew) {
       const who = teamName.trim() || "our crew";
-      return `${who} is locking in for Hacker House Goa 2026. 4 days, one rhythm, ocean at the door. Built our frames in one pass. #FrameInGoa`;
+      return [
+        `${who} is locking in for Hacker House Goa 2026. 4 days, one rhythm, ocean at the door. Built our frames in one pass. #FrameInGoa`,
+        `${who}, assembled. Hacker House Goa 2026, 28-31 Oct. One frame, whole crew. #FrameInGoa`,
+        `${who} is shipping to Goa. 4 days, one rhythm, no fluff. #FrameInGoa`,
+      ];
     }
     if (format === "pfp") {
-      return `New profile picture, same plan: Hacker House Goa 2026. Less noise, more signal. Drop a photo in and the frame builds itself. #FrameInGoa`;
+      return [
+        `New profile picture, same plan: Hacker House Goa 2026. Less noise, more signal. Drop a photo in and the frame builds itself. #FrameInGoa`,
+        `New PFP, same signal: Hacker House Goa 2026, 28-31 Oct. #FrameInGoa`,
+        `Locked in for Hacker House Goa 2026. Frame did the work, photo did the rest. #FrameInGoa`,
+      ];
     }
     const cls = builderClass(name, stack);
-    return `Builder pass secured for Hacker House Goa 2026. Class: ${cls}. 28-31 Oct, Goa. Make yours in about five seconds. #FrameInGoa`;
+    return [
+      `Builder pass secured for Hacker House Goa 2026. Class: ${cls}. 28-31 Oct, Goa. Make yours in about five seconds. #FrameInGoa`,
+      `${cls}, reporting for Hacker House Goa 2026. 28-31 Oct. Yours in five seconds, no cropping required. #FrameInGoa`,
+      `Pass printed. Class: ${cls}. Goa, 28-31 Oct. If you're building, you're welcome. #FrameInGoa`,
+    ];
   }, [isCrew, format, teamName, name, stack]);
+
+  const [captionIndex, setCaptionIndex] = useState(0);
+  const [useCustomCaption, setUseCustomCaption] = useState(false);
+  const [customCaption, setCustomCaption] = useState("");
+
+  const caption = useCustomCaption
+    ? customCaption.trim() || captionPresets[0]
+    : (captionPresets[captionIndex] ?? captionPresets[0]);
 
   const getBlob = useCallback(async () => {
     const canvas = canvasRef.current;
@@ -635,9 +680,9 @@ export default function Generator() {
           )}
 
           {!isCrew && photo && (
-            <>
-              <label className="field">
-                <span>Zoom</span>
+            <label className="field">
+              <span>Zoom &amp; rotate</span>
+              <div className="zoom-row">
                 <input
                   type="range"
                   min={1}
@@ -649,20 +694,18 @@ export default function Generator() {
                   }
                   style={{ padding: 0, border: 0, accentColor: PINK }}
                 />
-              </label>
-              <div className="field">
-                <span>Rotate</span>
                 <button
                   type="button"
-                  className="rotate-btn"
+                  className="icon-btn"
+                  aria-label="Rotate 90 degrees"
                   onClick={() =>
                     setFocus((f) => ({ ...f, rotation: (f.rotation + 90) % 360 }))
                   }
                 >
-                  ⟳ Rotate 90°
+                  ⟳
                 </button>
               </div>
-            </>
+            </label>
           )}
         </section>
 
@@ -749,6 +792,57 @@ export default function Generator() {
               </p>
             </>
           )}
+        </section>
+
+        <section className="panel">
+          <h2 className="panel-head">
+            <span className="num">4</span> Caption
+          </h2>
+          <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>
+            Goes out with the {isCrew ? "crew" : format === "pfp" ? "PFP" : "card"}{" "}
+            image when you press Share.
+          </p>
+          <div className="caption-list">
+            {captionPresets.map((c, i) => (
+              <label
+                key={i}
+                className="caption-option"
+                data-active={!useCustomCaption && captionIndex === i}
+              >
+                <input
+                  type="radio"
+                  name="caption"
+                  checked={!useCustomCaption && captionIndex === i}
+                  onChange={() => {
+                    setCaptionIndex(i);
+                    setUseCustomCaption(false);
+                  }}
+                />
+                <span>{c}</span>
+              </label>
+            ))}
+            <label className="caption-option" data-active={useCustomCaption}>
+              <input
+                type="radio"
+                name="caption"
+                checked={useCustomCaption}
+                onChange={() => setUseCustomCaption(true)}
+              />
+              <span>
+                Write your own
+                {useCustomCaption && (
+                  <textarea
+                    className="caption-custom"
+                    value={customCaption}
+                    maxLength={260}
+                    placeholder="Type your own caption — #FrameInGoa still helps you get spotted."
+                    onChange={(e) => setCustomCaption(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                )}
+              </span>
+            </label>
+          </div>
         </section>
       </div>
     </div>
