@@ -642,22 +642,10 @@ export default function Generator() {
 
       download(blob);
 
-      // Step 4: Mobile native X app deep link (twitter://) vs Web Intent (https://x.com)
+      // Step 4: Open X via Universal Link HTTPS Intent (opens X app natively without system prompt)
       const webUrl = intentUrl(shareUrl);
-      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-      if (isMobile) {
-        // Deep-link to open the installed native X mobile app directly
-        const mobileDeepLink = `twitter://post?message=${encodeURIComponent(
-          caption + (shareUrl ? ` ${shareUrl}` : "")
-        )}`;
-        const start = Date.now();
-        window.location.href = mobileDeepLink;
-        setTimeout(() => {
-          if (Date.now() - start < 2000) {
-            window.location.href = webUrl;
-          }
-        }, 1200);
+      if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+        window.location.href = webUrl;
       } else {
         window.open(webUrl, "_blank", "noopener,noreferrer");
       }
