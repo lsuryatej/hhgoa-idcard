@@ -161,25 +161,17 @@ body::after {
 
 /* ---------- layout ---------- */
 
+/* Two structurally different trees render into .workbench depending on
+   viewport (see Generator.tsx) rather than one tree reordered with CSS: on
+   mobile the preview sits between the photo controls and the details panel
+   in plain document order, so this is just a single column, no grid tricks
+   needed. Desktop renders a genuinely different tree — .stage-col wrapping
+   the preview + actions as a sticky left column beside every panel. */
 .workbench {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 28px;
   align-items: start;
-}
-
-/* On phones, before a photo exists the controls lead so the first thing in
-   reach is the upload rather than an empty preview with its call to action
-   below the fold. Once art exists, the preview jumps to the top instead —
-   otherwise every zoom/rotate tweak from the controls below meant scrolling
-   past three panels just to see the result. */
-.stage-col {
-  order: 2;
-}
-
-.workbench[data-has-art="true"] .stage-col {
-  order: 0;
-  margin-bottom: 8px;
 }
 
 @media (min-width: 940px) {
@@ -188,7 +180,6 @@ body::after {
     gap: 44px;
   }
   .stage-col {
-    order: 0;
     position: sticky;
     top: 24px;
   }

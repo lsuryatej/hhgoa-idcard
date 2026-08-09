@@ -88,6 +88,23 @@ export default function Generator() {
   const [iosDownload, setIosDownload] = useState(false);
   useEffect(() => setIosDownload(isIOS()), []);
 
+  // Desktop and mobile render genuinely different DOM structure (see the
+  // return statement) rather than the same tree reordered with CSS: desktop
+  // keeps the preview sticky beside every panel, mobile needs the preview to
+  // sit between "add a photo" and "your details" so a zoom/rotate edit is
+  // checkable without scrolling past three panels, with the actions moved to
+  // the very end. That can't be expressed as one CSS reorder of the same
+  // elements, so it's two branches. Defaults to the mobile branch during SSR
+  // (no `window` there) to avoid a hydration mismatch; flips on mount.
+  const [isDesktop, setIsDesktop] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 940px)");
+    const update = () => setIsDesktop(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
   const isCrew = format === "crew";
   const hasArt = isCrew ? members.length > 0 : photo !== null;
 
@@ -180,6 +197,14 @@ export default function Generator() {
     }, 16);
     return () => clearTimeout(frameRef.current);
   }, [draw]);
+
+  // Switching between the desktop and mobile branches below mounts a new
+  // <canvas> node (different position in the tree), which loses whatever was
+  // imperatively painted on the old one. Force a repaint whenever that
+  // happens so the swap never leaves a blank canvas behind.
+  useEffect(() => {
+    void draw();
+  }, [isDesktop, draw]);
 
   /* ---------------------------------------------------------------- intake */
 
@@ -387,9 +412,12 @@ export default function Generator() {
       const blob = await getBlob();
 
       // iOS Safari doesn't honour <a download> on a blob URL — it just opens
-      // the image in the tab instead of saving it, which is what "download
-      // is failing" was describing. The one path that reliably reaches
-      // Photos on iOS is the native share sheet's "Save Image" action.
+      // the image in the tab instead of saving it. The one path that
+      // reliably reaches Photos on iOS is the native share sheet's "Save
+      // Image" action. If that path isn't available or fails for a reason
+      // that isn't "the person cancelled", say so instead of silently
+      // falling back to the anchor method and hoping — that silent fallback
+      // is exactly what made the previous failure invisible.
       if (isIOS()) {
         const nav = navigator as Navigator & {
           canShare?: (d: ShareData) => boolean;
@@ -401,9 +429,18 @@ export default function Generator() {
             return;
           } catch (err) {
             if ((err as Error)?.name === "AbortError") return;
-            // Fall through to the anchor-click method as a last resort.
+            download(blob);
+            setError(
+              "The share sheet didn't finish, so this tried a direct download instead — check your Downloads/Files app."
+            );
+            return;
           }
         }
+        download(blob);
+        setError(
+          "This iPhone/browser can't share files directly, so this tried a direct download instead — check your Downloads/Files app."
+        );
+        return;
       }
 
       download(blob);
@@ -512,382 +549,416 @@ export default function Generator() {
 
   const ratio = SIZES[format];
 
-  return (
-    <div className="workbench" data-has-art={hasArt}>
-      <div className="stage-col">
-        <div className="stage">
-          {hasArt ? (
-            <canvas
-              ref={canvasRef}
-              onPointerDown={onPointerDown}
-              onPointerMove={onPointerMove}
-              onPointerUp={endDrag}
-              onPointerCancel={endDrag}
-              style={{
-                cursor: isCrew || !photo ? "default" : "grab",
-                touchAction: "none",
-                aspectRatio: `${ratio.w} / ${ratio.h}`,
-              }}
-            />
-          ) : (
-            <div className="stage-empty">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/brand/hanging-frames.svg" alt="" aria-hidden="true" />
-              <p>Drop a photo to see your frame</p>
-            </div>
-          )}
-          {busy && (
-            <div className="stage-busy">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/brand/goa_hindi.svg" alt="" aria-hidden="true" />
-              <span>{busy}…</span>
-            </div>
-          )}
+  const stageBlock = (
+    <div className="stage">
+      {hasArt ? (
+        <canvas
+          ref={canvasRef}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          style={{
+            cursor: isCrew || !photo ? "default" : "grab",
+            touchAction: "none",
+            aspectRatio: `${ratio.w} / ${ratio.h}`,
+          }}
+        />
+      ) : (
+        <div className="stage-empty">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/hanging-frames.svg" alt="" aria-hidden="true" />
+          <p>Drop a photo to see your frame</p>
         </div>
-
-        <div className="actions">
-          <button
-            className={`btn btn-primary${hasArt && !busy ? " btn-glow" : ""}`}
-            onClick={handleDownload}
-            disabled={!hasArt || !!busy}
-          >
-            Download PNG
-          </button>
-          <button
-            className={`btn btn-x${hasArt && !busy ? " btn-glow" : ""}`}
-            onClick={handleShare}
-            disabled={!hasArt || !!busy}
-          >
-            Share to X
-          </button>
+      )}
+      {busy && (
+        <div className="stage-busy">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/goa_hindi.svg" alt="" aria-hidden="true" />
+          <span>{busy}…</span>
         </div>
+      )}
+    </div>
+  );
 
-        {error && <p className="notice notice-error">{error}</p>}
-        {!error && hasArt && iosDownload && (
-          <p className="notice">
-            Download opens the share sheet on iPhone — pick{" "}
-            <strong>Save Image</strong> to send it to Photos.
-          </p>
-        )}
-        {!error && hasArt && (
-          <p className="notice">
-            Opens x.com — sign in there first if you&apos;re not already.
-          </p>
-        )}
-        {!error && hasArt && !isCrew && photo && (
-          <p className="notice">
-            Drag the preview to reposition your face. Nothing is uploaded until
-            you press Share.
-          </p>
-        )}
+  const actionsBlock = (
+    <>
+      <div className="actions">
+        <button
+          className={`btn btn-primary${hasArt && !busy ? " btn-glow" : ""}`}
+          onClick={handleDownload}
+          disabled={!hasArt || !!busy}
+        >
+          Download PNG
+        </button>
+        <button
+          className={`btn btn-x${hasArt && !busy ? " btn-glow" : ""}`}
+          onClick={handleShare}
+          disabled={!hasArt || !!busy}
+        >
+          Share to X
+        </button>
       </div>
 
-      <div>
-        <section className="panel">
-          <h2 className="panel-head">
-            <span className="num">1</span> Pick a format
-          </h2>
-          <div className="seg">
-            {FORMATS.map((f) => (
+      {error && <p className="notice notice-error">{error}</p>}
+      {!error && hasArt && iosDownload && (
+        <p className="notice">
+          Download opens the share sheet on iPhone — pick{" "}
+          <strong>Save Image</strong> to send it to Photos.
+        </p>
+      )}
+      {!error && hasArt && (
+        <p className="notice">
+          Opens x.com — sign in there first if you&apos;re not already.
+        </p>
+      )}
+      {!error && hasArt && !isCrew && photo && (
+        <p className="notice">
+          Drag the preview to reposition your face. Nothing is uploaded until
+          you press Share.
+        </p>
+      )}
+    </>
+  );
+
+  const panelFormat = (
+    <section className="panel">
+      <h2 className="panel-head">
+        <span className="num">1</span> Pick a format
+      </h2>
+      <div className="seg">
+        {FORMATS.map((f) => (
+          <button
+            key={f.id}
+            aria-pressed={format === f.id}
+            onClick={() => setFormat(f.id)}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+      <p className="hint">
+        {format === "pfp"
+          ? "A ring that survives X's circular crop. Swap it onto your profile as-is."
+          : format === "card"
+            ? "An event badge with your name, stack and a builder class we generate for you."
+            : "Up to six people in one frame. Add a photo per teammate."}
+      </p>
+    </section>
+  );
+
+  const panelPhoto = (
+    <section className="panel">
+      <h2 className="panel-head">
+        <span className="num">2</span> {isCrew ? "Add your crew" : "Add a photo"}
+      </h2>
+
+      <label
+        className="drop"
+        data-over={dragOver}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          void ingest(e.dataTransfer.files);
+        }}
+      >
+        <input
+          type="file"
+          accept={ACCEPT}
+          multiple={isCrew}
+          hidden
+          onChange={(e) => {
+            if (e.target.files) void ingest(e.target.files);
+            e.target.value = "";
+          }}
+        />
+        {!isCrew && photoPreview ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="drop-thumb" src={photoPreview} alt="" />
+            <strong>Photo added — tap to change</strong>
+            <span>Or drag a new one to replace it</span>
+          </>
+        ) : (
+          <>
+            <strong>{isCrew ? "Choose photos" : "Choose a photo"}</strong>
+            <span>Drag, drop or paste · JPG, PNG, WEBP, HEIC/HEIF from iPhone</span>
+          </>
+        )}
+      </label>
+
+      {!isCrew && photo && (
+        <button
+          type="button"
+          className="link-btn"
+          onClick={() => {
+            setPhoto(null);
+            setFocus({ ...DEFAULT_FOCUS });
+          }}
+        >
+          Remove photo
+        </button>
+      )}
+
+      {isCrew && members.length > 0 && (
+        <div className="crew-grid">
+          {members.map((m, i) => (
+            <div
+              key={m.id}
+              className="crew-cell"
+              style={m.preview ? { backgroundImage: `url(${m.preview})` } : undefined}
+            >
               <button
-                key={f.id}
-                aria-pressed={format === f.id}
-                onClick={() => setFormat(f.id)}
+                aria-label="Rotate"
+                className="crew-rotate"
+                onClick={() =>
+                  setMembers((prev) =>
+                    prev.map((x) =>
+                      x.id === m.id
+                        ? {
+                            ...x,
+                            focus: {
+                              ...x.focus,
+                              rotation: (x.focus.rotation + 90) % 360,
+                            },
+                          }
+                        : x
+                    )
+                  )
+                }
               >
-                {f.label}
+                ⟳
+              </button>
+              <button
+                aria-label="Remove"
+                onClick={() => setMembers((prev) => prev.filter((x) => x.id !== m.id))}
+              >
+                ×
+              </button>
+              <input
+                value={m.name}
+                placeholder={`NAME ${i + 1}`}
+                maxLength={14}
+                onChange={(e) =>
+                  setMembers((prev) =>
+                    prev.map((x) =>
+                      x.id === m.id ? { ...x, name: e.target.value } : x
+                    )
+                  )
+                }
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!isCrew && photo && (
+        <label className="field">
+          <span>Zoom &amp; rotate</span>
+          <div className="zoom-row">
+            <input
+              type="range"
+              min={1}
+              max={2.6}
+              step={0.02}
+              value={focus.zoom}
+              onChange={(e) =>
+                setFocus((f) => ({ ...f, zoom: Number(e.target.value) }))
+              }
+              style={{ padding: 0, border: 0, accentColor: PINK }}
+            />
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="Rotate 90 degrees"
+              onClick={() =>
+                setFocus((f) => ({ ...f, rotation: (f.rotation + 90) % 360 }))
+              }
+            >
+              ⟳
+            </button>
+          </div>
+        </label>
+      )}
+    </section>
+  );
+
+  const panelDetails = (
+    <section className="panel">
+      <h2 className="panel-head">
+        <span className="num">3</span> Your details
+      </h2>
+
+      {format === "pfp" && (
+        <>
+          <span
+            style={{
+              fontSize: 10,
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              fontWeight: 700,
+              display: "block",
+              marginBottom: 6,
+            }}
+          >
+            Ring colour
+          </span>
+          <div className="seg">
+            {RINGS.map((r) => (
+              <button
+                key={r.id}
+                aria-pressed={ringColor === r.id}
+                onClick={() => setRingColor(r.id)}
+              >
+                {r.label}
               </button>
             ))}
           </div>
           <p className="hint">
-            {format === "pfp"
-              ? "A ring that survives X's circular crop. Swap it onto your profile as-is."
-              : format === "card"
-                ? "An event badge with your name, stack and a builder class we generate for you."
-                : "Up to six people in one frame. Add a photo per teammate."}
+            The frame carries the branding, so there is nothing to fill in here.
+            Download and set it as your profile picture.
           </p>
-        </section>
+        </>
+      )}
 
-        <section className="panel">
-          <h2 className="panel-head">
-            <span className="num">2</span> {isCrew ? "Add your crew" : "Add a photo"}
-          </h2>
+      {format === "card" && (
+        <>
+          <label className="field">
+            <span>Name</span>
+            <input
+              value={name}
+              maxLength={22}
+              placeholder="0xBuilder"
+              onChange={(e) => setName(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Stack or role</span>
+            <input
+              value={stack}
+              maxLength={34}
+              placeholder="Rust · distributed systems"
+              onChange={(e) => setStack(e.target.value)}
+            />
+          </label>
+          <p className="hint">
+            Builder class: <strong>{builderClass(name, stack)}</strong> — derived
+            from your name and stack, so it never changes on you.
+          </p>
+        </>
+      )}
 
+      {isCrew && (
+        <>
+          <label className="field">
+            <span>Crew name</span>
+            <input
+              value={teamName}
+              maxLength={20}
+              placeholder="Null Pointer Society"
+              onChange={(e) => setTeamName(e.target.value)}
+            />
+          </label>
+          <p className="hint">
+            {members.length
+              ? `${members.length} of 6 added. Name each face in the tray above.`
+              : "Add between two and six photos."}
+          </p>
+        </>
+      )}
+    </section>
+  );
+
+  const panelCaption = (
+    <section className="panel">
+      <h2 className="panel-head">
+        <span className="num">4</span> Caption
+      </h2>
+      <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>
+        Goes out with the {isCrew ? "crew" : format === "pfp" ? "PFP" : "card"}{" "}
+        image when you press Share.
+      </p>
+      <div className="caption-list">
+        {captionPresets.map((c, i) => (
           <label
-            className="drop"
-            data-over={dragOver}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver(true);
-            }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragOver(false);
-              void ingest(e.dataTransfer.files);
-            }}
+            key={i}
+            className="caption-option"
+            data-active={!useCustomCaption && captionIndex === i}
           >
             <input
-              type="file"
-              accept={ACCEPT}
-              multiple={isCrew}
-              hidden
-              onChange={(e) => {
-                if (e.target.files) void ingest(e.target.files);
-                e.target.value = "";
+              type="radio"
+              name="caption"
+              checked={!useCustomCaption && captionIndex === i}
+              onChange={() => {
+                setCaptionIndex(i);
+                setUseCustomCaption(false);
               }}
             />
-            {!isCrew && photoPreview ? (
-              <>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img className="drop-thumb" src={photoPreview} alt="" />
-                <strong>Photo added — tap to change</strong>
-                <span>Or drag a new one to replace it</span>
-              </>
-            ) : (
-              <>
-                <strong>{isCrew ? "Choose photos" : "Choose a photo"}</strong>
-                <span>
-                  Drag, drop or paste · JPG, PNG, WEBP, HEIC/HEIF from iPhone
-                </span>
-              </>
-            )}
+            <span>{c}</span>
           </label>
-
-          {!isCrew && photo && (
-            <button
-              type="button"
-              className="link-btn"
-              onClick={() => {
-                setPhoto(null);
-                setFocus({ ...DEFAULT_FOCUS });
-              }}
-            >
-              Remove photo
-            </button>
-          )}
-
-          {isCrew && members.length > 0 && (
-            <div className="crew-grid">
-              {members.map((m, i) => (
-                <div
-                  key={m.id}
-                  className="crew-cell"
-                  style={
-                    m.preview ? { backgroundImage: `url(${m.preview})` } : undefined
-                  }
-                >
-                  <button
-                    aria-label="Rotate"
-                    className="crew-rotate"
-                    onClick={() =>
-                      setMembers((prev) =>
-                        prev.map((x) =>
-                          x.id === m.id
-                            ? {
-                                ...x,
-                                focus: {
-                                  ...x.focus,
-                                  rotation: (x.focus.rotation + 90) % 360,
-                                },
-                              }
-                            : x
-                        )
-                      )
-                    }
-                  >
-                    ⟳
-                  </button>
-                  <button
-                    aria-label="Remove"
-                    onClick={() =>
-                      setMembers((prev) => prev.filter((x) => x.id !== m.id))
-                    }
-                  >
-                    ×
-                  </button>
-                  <input
-                    value={m.name}
-                    placeholder={`NAME ${i + 1}`}
-                    maxLength={14}
-                    onChange={(e) =>
-                      setMembers((prev) =>
-                        prev.map((x) =>
-                          x.id === m.id ? { ...x, name: e.target.value } : x
-                        )
-                      )
-                    }
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!isCrew && photo && (
-            <label className="field">
-              <span>Zoom &amp; rotate</span>
-              <div className="zoom-row">
-                <input
-                  type="range"
-                  min={1}
-                  max={2.6}
-                  step={0.02}
-                  value={focus.zoom}
-                  onChange={(e) =>
-                    setFocus((f) => ({ ...f, zoom: Number(e.target.value) }))
-                  }
-                  style={{ padding: 0, border: 0, accentColor: PINK }}
-                />
-                <button
-                  type="button"
-                  className="icon-btn"
-                  aria-label="Rotate 90 degrees"
-                  onClick={() =>
-                    setFocus((f) => ({ ...f, rotation: (f.rotation + 90) % 360 }))
-                  }
-                >
-                  ⟳
-                </button>
-              </div>
-            </label>
-          )}
-        </section>
-
-        <section className="panel">
-          <h2 className="panel-head">
-            <span className="num">3</span> Your details
-          </h2>
-
-          {format === "pfp" && (
-            <>
-              <span
-                style={{
-                  fontSize: 10,
-                  letterSpacing: "0.2em",
-                  textTransform: "uppercase",
-                  fontWeight: 700,
-                  display: "block",
-                  marginBottom: 6,
-                }}
-              >
-                Ring colour
-              </span>
-              <div className="seg">
-                {RINGS.map((r) => (
-                  <button
-                    key={r.id}
-                    aria-pressed={ringColor === r.id}
-                    onClick={() => setRingColor(r.id)}
-                  >
-                    {r.label}
-                  </button>
-                ))}
-              </div>
-              <p className="hint">
-                The frame carries the branding, so there is nothing to fill in
-                here. Download and set it as your profile picture.
-              </p>
-            </>
-          )}
-
-          {format === "card" && (
-            <>
-              <label className="field">
-                <span>Name</span>
-                <input
-                  value={name}
-                  maxLength={22}
-                  placeholder="0xBuilder"
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span>Stack or role</span>
-                <input
-                  value={stack}
-                  maxLength={34}
-                  placeholder="Rust · distributed systems"
-                  onChange={(e) => setStack(e.target.value)}
-                />
-              </label>
-              <p className="hint">
-                Builder class:{" "}
-                <strong>{builderClass(name, stack)}</strong> — derived from your
-                name and stack, so it never changes on you.
-              </p>
-            </>
-          )}
-
-          {isCrew && (
-            <>
-              <label className="field">
-                <span>Crew name</span>
-                <input
-                  value={teamName}
-                  maxLength={20}
-                  placeholder="Null Pointer Society"
-                  onChange={(e) => setTeamName(e.target.value)}
-                />
-              </label>
-              <p className="hint">
-                {members.length
-                  ? `${members.length} of 6 added. Name each face in the tray above.`
-                  : "Add between two and six photos."}
-              </p>
-            </>
-          )}
-        </section>
-
-        <section className="panel">
-          <h2 className="panel-head">
-            <span className="num">4</span> Caption
-          </h2>
-          <p className="hint" style={{ marginTop: 0, marginBottom: 14 }}>
-            Goes out with the {isCrew ? "crew" : format === "pfp" ? "PFP" : "card"}{" "}
-            image when you press Share.
-          </p>
-          <div className="caption-list">
-            {captionPresets.map((c, i) => (
-              <label
-                key={i}
-                className="caption-option"
-                data-active={!useCustomCaption && captionIndex === i}
-              >
-                <input
-                  type="radio"
-                  name="caption"
-                  checked={!useCustomCaption && captionIndex === i}
-                  onChange={() => {
-                    setCaptionIndex(i);
-                    setUseCustomCaption(false);
-                  }}
-                />
-                <span>{c}</span>
-              </label>
-            ))}
-            <label className="caption-option" data-active={useCustomCaption}>
-              <input
-                type="radio"
-                name="caption"
-                checked={useCustomCaption}
-                onChange={() => setUseCustomCaption(true)}
+        ))}
+        <label className="caption-option" data-active={useCustomCaption}>
+          <input
+            type="radio"
+            name="caption"
+            checked={useCustomCaption}
+            onChange={() => setUseCustomCaption(true)}
+          />
+          <span>
+            Write your own
+            {useCustomCaption && (
+              <textarea
+                className="caption-custom"
+                value={customCaption}
+                maxLength={260}
+                placeholder="Type your own caption — #FrameInGoa still helps you get spotted."
+                onChange={(e) => setCustomCaption(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
               />
-              <span>
-                Write your own
-                {useCustomCaption && (
-                  <textarea
-                    className="caption-custom"
-                    value={customCaption}
-                    maxLength={260}
-                    placeholder="Type your own caption — #FrameInGoa still helps you get spotted."
-                    onChange={(e) => setCustomCaption(e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                )}
-              </span>
-            </label>
-          </div>
-        </section>
+            )}
+          </span>
+        </label>
       </div>
+    </section>
+  );
+
+  // Desktop: preview + actions stick together in a left column beside every
+  // panel, so they're always in view regardless of scroll — the layout
+  // already solves "see the edit next to the controls" here.
+  if (isDesktop) {
+    return (
+      <div className="workbench">
+        <div className="stage-col">
+          {stageBlock}
+          {actionsBlock}
+        </div>
+        <div>
+          {panelFormat}
+          {panelPhoto}
+          {panelDetails}
+          {panelCaption}
+        </div>
+      </div>
+    );
+  }
+
+  // Mobile: one column, so the preview goes right after the controls that
+  // affect it (format + photo/zoom/rotate) instead of at either extreme —
+  // no scrolling required to check a zoom or rotate edit. Actions move to
+  // the very end, after every field that can change what gets shared.
+  return (
+    <div className="workbench workbench-mobile">
+      {panelFormat}
+      {panelPhoto}
+      {stageBlock}
+      {panelDetails}
+      {panelCaption}
+      {actionsBlock}
     </div>
   );
 }
