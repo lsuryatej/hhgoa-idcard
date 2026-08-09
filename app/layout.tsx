@@ -19,10 +19,13 @@ export const metadata: Metadata = {
   ],
   icons: {
     icon: [
+      { url: "/icon", type: "image/png", sizes: "32x32" },
       { url: "/brand/goa_hindi.svg", type: "image/svg+xml" },
     ],
-    shortcut: "/brand/goa_hindi.svg",
-    apple: "/brand/goa_hindi.svg",
+    shortcut: "/icon",
+    apple: [
+      { url: "/apple-icon", sizes: "180x180", type: "image/png" },
+    ],
   },
   openGraph: {
     title: "Frame in Goa — Hacker House Goa 2026",
