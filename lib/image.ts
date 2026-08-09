@@ -98,7 +98,19 @@ export async function loadPhoto(file: File): Promise<Photo> {
 export function loadImageElement(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = "anonymous";
+    if (
+      typeof window !== "undefined" &&
+      (src.startsWith("http://") || src.startsWith("https://") || src.startsWith("//"))
+    ) {
+      try {
+        const u = new URL(src, window.location.href);
+        if (u.origin !== window.location.origin) {
+          img.crossOrigin = "anonymous";
+        }
+      } catch {
+        img.crossOrigin = "anonymous";
+      }
+    }
     img.onload = () => resolve(img);
     img.onerror = () => reject(new Error(`could not load ${src}`));
     img.src = src;

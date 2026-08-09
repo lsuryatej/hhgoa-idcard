@@ -22,6 +22,7 @@ import {
   render,
 } from "@/lib/render";
 import { builderClass } from "@/lib/titles";
+import { logClient } from "@/lib/logger";
 
 type Member = {
   id: string;
@@ -139,6 +140,44 @@ export default function Generator() {
   // can't be persisted (bitmaps aren't serialisable), but retyping a name and
   // stack after losing the tab is the more annoying part to redo.
   useEffect(() => {
+    return () => {
+      setPhoto((prev) => {
+        try { prev?.close(); } catch {}
+        return null;
+      });
+      setMembers((prev) => {
+        prev.forEach((m) => {
+          try { m.bitmap.close(); } catch {}
+        });
+        return [];
+      });
+    };
+  }, []);
+
+  useEffect(() => {
+    const onError = (e: ErrorEvent) => {
+      logClient("GLOBAL_WINDOW_ERROR", {
+        message: e.message,
+        filename: e.filename,
+        lineno: e.lineno,
+        colno: e.colno,
+        error: e.error ? String(e.error.stack || e.error) : null,
+      });
+    };
+    const onRejection = (e: PromiseRejectionEvent) => {
+      logClient("GLOBAL_UNHANDLED_REJECTION", {
+        reason: e.reason ? String(e.reason.stack || e.reason) : String(e.reason),
+      });
+    };
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onRejection);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRejection);
+    };
+  }, []);
+
+  useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("hh-goa-frame-draft") ?? "{}");
       if (saved.name) setName(saved.name);
@@ -238,7 +277,12 @@ export default function Generator() {
           }
         } else {
           const p = await loadPhoto(list[0]);
-          setPhoto(p.bitmap);
+          setPhoto((prev) => {
+            if (prev && prev !== p.bitmap) {
+              try { prev.close(); } catch {}
+            }
+            return p.bitmap;
+          });
           setFocus({ ...DEFAULT_FOCUS });
         }
       } catch (err) {
@@ -387,47 +431,57 @@ export default function Generator() {
   const getBlob = useCallback(async () => {
     const canvas = canvasRef.current;
     if (!canvas) throw new Error("nothing to export");
-    await draw();
-    return canvasToBlob(canvas);
-  }, [draw]);
+    logClient("GET_BLOB_START", { format, hasArt, name, stack });
+    try {
+      await draw();
+      logClient("DRAW_COMPLETE", { format });
+      const blob = await canvasToBlob(canvas);
+      logClient("BLOB_CREATED", { size: blob.size, type: blob.type });
+      return blob;
+    } catch (err) {
+      logClient("GET_BLOB_ERROR", err);
+      throw err;
+    }
+  }, [draw, format, hasArt, name, stack]);
 
   const download = useCallback(
     (blob: Blob) => {
+      logClient("DOWNLOAD_BLOB_CALL", { size: blob.size, filename });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = filename;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
       document.body.appendChild(a);
       a.click();
       a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
     },
     [filename]
   );
 
   const handleDownload = async () => {
+    logClient("CLICK_DOWNLOAD_PNG", { format, isIOS: isIOS(), name, stack });
     setError(null);
     setBusy("Encoding");
     try {
       const blob = await getBlob();
 
-      // iOS Safari doesn't honour <a download> on a blob URL — it just opens
-      // the image in the tab instead of saving it. The one path that
-      // reliably reaches Photos on iOS is the native share sheet's "Save
-      // Image" action. If that path isn't available or fails for a reason
-      // that isn't "the person cancelled", say so instead of silently
-      // falling back to the anchor method and hoping — that silent fallback
-      // is exactly what made the previous failure invisible.
       if (isIOS()) {
         const nav = navigator as Navigator & {
           canShare?: (d: ShareData) => boolean;
         };
         const file = new File([blob], filename, { type: "image/png" });
-        if (nav.canShare?.({ files: [file] })) {
+        const canShareFiles = Boolean(nav.canShare?.({ files: [file] }));
+        logClient("IOS_SHARE_CHECK", { canShareFiles });
+        if (canShareFiles) {
           try {
             await nav.share({ files: [file] });
+            logClient("IOS_NAV_SHARE_SUCCESS", {});
             return;
           } catch (err) {
+            logClient("IOS_NAV_SHARE_ERROR", err);
             if ((err as Error)?.name === "AbortError") return;
             download(blob);
             setError(
@@ -444,7 +498,8 @@ export default function Generator() {
       }
 
       download(blob);
-    } catch {
+    } catch (err) {
+      logClient("HANDLE_DOWNLOAD_ERROR", err);
       setError("Export failed. Reload and try once more.");
     } finally {
       setBusy(null);
@@ -458,19 +513,16 @@ export default function Generator() {
   };
 
   const handleShare = async () => {
+    logClient("CLICK_SHARE_TO_X", { format, isIOS: isIOS(), caption });
     setError(null);
     setBusy("Preparing share");
 
-    // Open the tab now, synchronously in the click handler, and point it
-    // somewhere later. Every await below (canvas encode, native share sheet,
-    // the upload fetch) can burn the "direct result of a user gesture" window
-    // browsers require — open after any of that and it silently becomes a
-    // blocked popup instead of a new tab, which is exactly the "share does
-    // nothing" failure this exists to prevent.
     let tab: Window | null = null;
     try {
-      tab = window.open("", "_blank");
-    } catch {
+      tab = window.open(intentUrl(), "_blank");
+      logClient("WINDOW_OPEN_X_INTENT", { opened: Boolean(tab) });
+    } catch (err) {
+      logClient("WINDOW_OPEN_ERROR", err);
       tab = null;
     }
 
@@ -478,35 +530,26 @@ export default function Generator() {
       const blob = await getBlob();
       const file = new File([blob], filename, { type: "image/png" });
 
-      // Phones get the real file handed straight to the OS share sheet: one
-      // tap, image already attached, no download step in between. But the
-      // sheet only lists apps that are actually installed — if X isn't one
-      // of them, the person has no way to finish from there and either picks
-      // "Cancel" or nothing happens. Either way we must not treat that as
-      // done: fall through to the browser-intent route below so there is
-      // always a path that works with zero apps installed.
       const nav = navigator as Navigator & {
         canShare?: (d: ShareData) => boolean;
       };
       if (nav.canShare?.({ files: [file] })) {
         try {
+          logClient("MOBILE_SHARE_ATTEMPT", {});
           await nav.share({ files: [file], text: caption });
+          logClient("MOBILE_SHARE_SUCCESS", {});
           tab?.close();
           setBusy(null);
           return;
-        } catch {
-          // Cancelled, unsupported target, or any other failure — fall
-          // through to the link route rather than leaving the user stuck.
+        } catch (err) {
+          logClient("MOBILE_SHARE_ERROR", err);
         }
       }
 
-      // Guaranteed browser path: works on desktop and mobile, with or
-      // without X installed. Uploads for a link whose preview renders the
-      // graphic, downloads the PNG, and points the already-open tab at
-      // x.com so nothing gets blocked as a popup.
       setBusy("Uploading");
       let shareUrl: string | undefined;
       try {
+        logClient("API_SHARE_POST_START", {});
         const res = await fetch("/api/share", {
           method: "POST",
           headers: {
@@ -515,12 +558,13 @@ export default function Generator() {
           },
           body: blob,
         });
+        logClient("API_SHARE_RESPONSE", { status: res.status, ok: res.ok });
         if (res.ok) {
           const data = (await res.json()) as { id?: string };
           if (data.id) shareUrl = `${window.location.origin}/s/${data.id}`;
         }
-      } catch {
-        // Storage not configured, or offline. The download below still works.
+      } catch (err) {
+        logClient("API_SHARE_FETCH_ERROR", err);
       }
 
       download(blob);
@@ -528,8 +572,6 @@ export default function Generator() {
       if (tab) {
         tab.location.href = url;
       } else {
-        // The early window.open was itself blocked (rare, but some browsers
-        // block even the synchronous call). Last resort, may also be blocked.
         window.open(url, "_blank", "noopener,noreferrer");
       }
       if (!shareUrl) {
@@ -537,7 +579,8 @@ export default function Generator() {
           "Posted without a link preview, so attach the downloaded PNG to your tweet."
         );
       }
-    } catch {
+    } catch (err) {
+      logClient("HANDLE_SHARE_ERROR", err);
       tab?.close();
       setError("Share failed. Download the image and post it manually.");
     } finally {
@@ -697,7 +740,10 @@ export default function Generator() {
           type="button"
           className="link-btn"
           onClick={() => {
-            setPhoto(null);
+            setPhoto((prev) => {
+              try { prev?.close(); } catch {}
+              return null;
+            });
             setFocus({ ...DEFAULT_FOCUS });
           }}
         >
@@ -736,7 +782,15 @@ export default function Generator() {
               </button>
               <button
                 aria-label="Remove"
-                onClick={() => setMembers((prev) => prev.filter((x) => x.id !== m.id))}
+                onClick={() =>
+                  setMembers((prev) => {
+                    const target = prev.find((x) => x.id === m.id);
+                    if (target?.bitmap) {
+                      try { target.bitmap.close(); } catch {}
+                    }
+                    return prev.filter((x) => x.id !== m.id);
+                  })
+                }
               >
                 ×
               </button>

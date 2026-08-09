@@ -1,5 +1,6 @@
 import { builderClass, passNumber } from "./titles";
 import { loadImageElement } from "./image";
+import { logClient } from "./logger";
 
 export const GREEN = "#0b6839";
 export const GREEN_DEEP = "#074f2b";
@@ -63,13 +64,21 @@ export function loadFonts(): Promise<void> {
       // font-display:block means the faces exist but aren't rasterised until
       // something asks for them. Canvas silently falls back to Times if we skip
       // this, so ask explicitly for every weight the renderers use.
-      await Promise.all([
-        document.fonts.load(`700 120px ${DISPLAY}`),
-        document.fonts.load(`400 120px ${DISPLAY}`),
-        document.fonts.load(`700 40px ${MONO}`),
-        document.fonts.load(`400 40px ${MONO}`),
-      ]);
-      await document.fonts.ready;
+      try {
+        await Promise.all([
+          document.fonts.load(`700 120px "Imbue"`),
+          document.fonts.load(`400 120px "Imbue"`),
+          document.fonts.load(`700 40px "Victor Mono"`),
+          document.fonts.load(`400 40px "Victor Mono"`),
+        ]);
+      } catch {
+        // Fallback for browsers that throw on font load shorthand
+      }
+      try {
+        await document.fonts.ready;
+      } catch {
+        // Ignore font ready errors
+      }
     })();
   }
   return fontsPromise;
@@ -119,13 +128,12 @@ function drawTape(
   width: number,
   scale: number
 ) {
-  const pattern = ctx.createPattern(img, "repeat");
-  if (!pattern) return;
+  const tileW = (img.naturalWidth || 102) * scale;
+  const tileH = (img.naturalHeight || 7) * scale;
   ctx.save();
-  ctx.translate(x, y);
-  ctx.scale(scale, scale);
-  ctx.fillStyle = pattern;
-  ctx.fillRect(0, 0, width / scale, img.naturalHeight || 7);
+  for (let cursor = x; cursor < x + width; cursor += tileW) {
+    ctx.drawImage(img, cursor, y, tileW, tileH);
+  }
   ctx.restore();
 }
 
@@ -179,7 +187,16 @@ function roundRect(
   r: number
 ) {
   ctx.beginPath();
-  ctx.roundRect(x, y, w, h, r);
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, w, h, r);
+  } else {
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
 }
 
 /** Fills text, preceded by a hard offset copy in `shadow`. No blur, ever. */
@@ -547,7 +564,11 @@ function drawFootline(
   // Studio credit mark (the real "2:47 pm Studio" asset, not typeset text —
   // its letterforms are hand-drawn, not something Victor Mono can fake).
   const creditH = 30;
-  const creditW = creditH * (brand.credit.naturalWidth / brand.credit.naturalHeight);
+  const creditRatio =
+    brand.credit.naturalWidth && brand.credit.naturalHeight
+      ? brand.credit.naturalWidth / brand.credit.naturalHeight
+      : 546 / 335;
+  const creditW = creditH * creditRatio;
   ctx.drawImage(
     brand.credit,
     shell.innerX + shell.innerW - creditW,
@@ -747,19 +768,24 @@ function renderCrew(
 /* ------------------------------------------------------------------ public */
 
 export function render(canvas: HTMLCanvasElement, input: RenderInput, brand: Brand) {
-  const { w, h } = SIZES[input.format];
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  ctx.clearRect(0, 0, w, h);
-  ctx.imageSmoothingQuality = "high";
-  ctx.textBaseline = "alphabetic";
-  ctx.textAlign = "left";
+  try {
+    const { w, h } = SIZES[input.format];
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, w, h);
+    ctx.imageSmoothingQuality = "high";
+    ctx.textBaseline = "alphabetic";
+    ctx.textAlign = "left";
 
-  if (input.format === "pfp") renderPfp(ctx, input, brand);
-  else if (input.format === "crew") renderCrew(ctx, input, brand);
-  else renderCard(ctx, input, brand);
+    if (input.format === "pfp") renderPfp(ctx, input, brand);
+    else if (input.format === "crew") renderCrew(ctx, input, brand);
+    else renderCard(ctx, input, brand);
+  } catch (err) {
+    logClient("RENDER_ERROR", err);
+    throw err;
+  }
 }
 
 export function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
