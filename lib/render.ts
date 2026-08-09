@@ -14,8 +14,11 @@ export const MONO = "'Victor Mono', ui-monospace, monospace";
 
 export type Format = "pfp" | "card" | "crew";
 
-export type Focus = { x: number; y: number; zoom: number };
-export const DEFAULT_FOCUS: Focus = { x: 0.5, y: 0.5, zoom: 1 };
+// rotation is degrees clockwise, always one of 0/90/180/270 — a photo taken
+// sideways (camera held wrong, or a phone that guessed EXIF orientation
+// wrong) needs a quick fix with no cropping tool required.
+export type Focus = { x: number; y: number; zoom: number; rotation: number };
+export const DEFAULT_FOCUS: Focus = { x: 0.5, y: 0.5, zoom: 1, rotation: 0 };
 
 export type CrewMember = { bitmap: ImageBitmap; name: string; focus: Focus };
 
@@ -138,13 +141,33 @@ function drawCover(
   // Cover-fit, then let the focus point decide which part of the overflow gets
   // cropped. This is what makes landscape shots and off-centre selfies work
   // without asking anyone to pre-crop.
-  const base = Math.max(w / bmp.width, h / bmp.height);
+  const rotation = ((focus.rotation % 360) + 360) % 360;
+  const swapped = rotation === 90 || rotation === 270;
+  const bw = swapped ? bmp.height : bmp.width;
+  const bh = swapped ? bmp.width : bmp.height;
+
+  const base = Math.max(w / bw, h / bh);
   const scale = base * focus.zoom;
-  const dw = bmp.width * scale;
-  const dh = bmp.height * scale;
+  const dw = bw * scale;
+  const dh = bh * scale;
   const dx = x + (w - dw) * focus.x;
   const dy = y + (h - dh) * focus.y;
-  ctx.drawImage(bmp, dx, dy, dw, dh);
+
+  if (rotation === 0) {
+    ctx.drawImage(bmp, dx, dy, dw, dh);
+    return;
+  }
+
+  // Rotate around the centre of the (already swapped) placement box, then
+  // draw the untouched bitmap at its own natural aspect so it lands exactly
+  // inside that box once rotated.
+  ctx.save();
+  ctx.translate(dx + dw / 2, dy + dh / 2);
+  ctx.rotate((rotation * Math.PI) / 180);
+  const origDw = bmp.width * scale;
+  const origDh = bmp.height * scale;
+  ctx.drawImage(bmp, -origDw / 2, -origDh / 2, origDw, origDh);
+  ctx.restore();
 }
 
 function roundRect(

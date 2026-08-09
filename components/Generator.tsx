@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { loadPhoto } from "@/lib/image";
+import { PhotoError, loadPhoto } from "@/lib/image";
 import {
   DEFAULT_FOCUS,
   Focus,
@@ -82,6 +82,32 @@ export default function Generator() {
       .catch(() => setReady(true));
   }, []);
 
+  // Text fields survive an accidental reload or tab close — the photo itself
+  // can't be persisted (bitmaps aren't serialisable), but retyping a name and
+  // stack after losing the tab is the more annoying part to redo.
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("hh-goa-frame-draft") ?? "{}");
+      if (saved.name) setName(saved.name);
+      if (saved.stack) setStack(saved.stack);
+      if (saved.teamName) setTeamName(saved.teamName);
+      if (saved.format) setFormat(saved.format);
+    } catch {
+      // Private browsing or storage disabled — fine, just starts blank.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "hh-goa-frame-draft",
+        JSON.stringify({ name, stack, teamName, format })
+      );
+    } catch {
+      // Storage full or disabled — nothing to persist, nothing to break.
+    }
+  }, [name, stack, teamName, format]);
+
   /* --------------------------------------------------------------- render */
 
   const draw = useCallback(async () => {
@@ -129,7 +155,9 @@ export default function Generator() {
       setBusy("Reading photo");
       try {
         if (isCrew) {
-          const loaded = await Promise.all(list.slice(0, 6).map(loadPhoto));
+          const room = Math.max(0, 6 - members.length);
+          const overflow = list.length > room;
+          const loaded = await Promise.all(list.slice(0, room).map(loadPhoto));
           setMembers((prev) =>
             [
               ...prev,
@@ -142,21 +170,52 @@ export default function Generator() {
               })),
             ].slice(0, 6)
           );
+          if (overflow) {
+            setError(
+              `Crew frames fit six people. Added ${room}, left the rest out — remove someone to add more.`
+            );
+          }
         } else {
           const p = await loadPhoto(list[0]);
           setPhoto(p.bitmap);
           setFocus({ ...DEFAULT_FOCUS });
         }
-      } catch {
+      } catch (err) {
         setError(
-          "That file would not open. Try a JPG or PNG, or re-save the HEIC from Photos."
+          err instanceof PhotoError
+            ? err.message
+            : "That file would not open. Try a JPG, PNG, WEBP, or re-save the HEIC from Photos."
         );
       } finally {
         setBusy(null);
       }
     },
-    [isCrew]
+    [isCrew, members.length]
   );
+
+  // A small confirmation thumbnail inside the "Add a photo" panel itself. On
+  // a phone, the actual rendered frame sits below three panels of controls
+  // (see .stage-col order in globals.css) — with nothing shown right here, a
+  // successful upload looked identical to a silently failed one, since the
+  // only feedback was scrolled off-screen.
+  const [photoPreview, setPhotoPreview] = useState<string>("");
+  useEffect(() => {
+    if (!photo) {
+      setPhotoPreview("");
+      return;
+    }
+    const c = document.createElement("canvas");
+    c.width = 160;
+    c.height = 160;
+    const cx = c.getContext("2d");
+    if (cx) {
+      const s = Math.max(160 / photo.width, 160 / photo.height);
+      const dw = photo.width * s;
+      const dh = photo.height * s;
+      cx.drawImage(photo, (160 - dw) / 2, (160 - dh) / 2, dw, dh);
+      setPhotoPreview(c.toDataURL("image/jpeg", 0.7));
+    }
+  }, [photo]);
 
   // Thumbnails for the crew tray, drawn off the decoded bitmap so we never keep
   // the original File around.
@@ -421,7 +480,12 @@ export default function Generator() {
           </button>
         </div>
 
-        {error && <p className="notice">{error}</p>}
+        {error && <p className="notice notice-error">{error}</p>}
+        {!error && hasArt && (
+          <p className="notice">
+            Opens x.com — sign in there first if you&apos;re not already.
+          </p>
+        )}
         {!error && hasArt && !isCrew && photo && (
           <p className="notice">
             Drag the preview to reposition your face. Nothing is uploaded until
@@ -484,9 +548,35 @@ export default function Generator() {
                 e.target.value = "";
               }}
             />
-            <strong>{isCrew ? "Choose photos" : "Choose a photo"}</strong>
-            <span>Drag, drop or paste · JPG, PNG, HEIC from iPhone</span>
+            {!isCrew && photoPreview ? (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img className="drop-thumb" src={photoPreview} alt="" />
+                <strong>Photo added — tap to change</strong>
+                <span>Or drag a new one to replace it</span>
+              </>
+            ) : (
+              <>
+                <strong>{isCrew ? "Choose photos" : "Choose a photo"}</strong>
+                <span>
+                  Drag, drop or paste · JPG, PNG, WEBP, HEIC/HEIF from iPhone
+                </span>
+              </>
+            )}
           </label>
+
+          {!isCrew && photo && (
+            <button
+              type="button"
+              className="link-btn"
+              onClick={() => {
+                setPhoto(null);
+                setFocus({ ...DEFAULT_FOCUS });
+              }}
+            >
+              Remove photo
+            </button>
+          )}
 
           {isCrew && members.length > 0 && (
             <div className="crew-grid">
@@ -498,6 +588,27 @@ export default function Generator() {
                     m.preview ? { backgroundImage: `url(${m.preview})` } : undefined
                   }
                 >
+                  <button
+                    aria-label="Rotate"
+                    className="crew-rotate"
+                    onClick={() =>
+                      setMembers((prev) =>
+                        prev.map((x) =>
+                          x.id === m.id
+                            ? {
+                                ...x,
+                                focus: {
+                                  ...x.focus,
+                                  rotation: (x.focus.rotation + 90) % 360,
+                                },
+                              }
+                            : x
+                        )
+                      )
+                    }
+                  >
+                    ⟳
+                  </button>
                   <button
                     aria-label="Remove"
                     onClick={() =>
@@ -524,20 +635,34 @@ export default function Generator() {
           )}
 
           {!isCrew && photo && (
-            <label className="field">
-              <span>Zoom</span>
-              <input
-                type="range"
-                min={1}
-                max={2.6}
-                step={0.02}
-                value={focus.zoom}
-                onChange={(e) =>
-                  setFocus((f) => ({ ...f, zoom: Number(e.target.value) }))
-                }
-                style={{ padding: 0, border: 0, accentColor: PINK }}
-              />
-            </label>
+            <>
+              <label className="field">
+                <span>Zoom</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={2.6}
+                  step={0.02}
+                  value={focus.zoom}
+                  onChange={(e) =>
+                    setFocus((f) => ({ ...f, zoom: Number(e.target.value) }))
+                  }
+                  style={{ padding: 0, border: 0, accentColor: PINK }}
+                />
+              </label>
+              <div className="field">
+                <span>Rotate</span>
+                <button
+                  type="button"
+                  className="rotate-btn"
+                  onClick={() =>
+                    setFocus((f) => ({ ...f, rotation: (f.rotation + 90) % 360 }))
+                  }
+                >
+                  ⟳ Rotate 90°
+                </button>
+              </div>
+            </>
           )}
         </section>
 

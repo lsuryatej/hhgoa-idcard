@@ -3,6 +3,14 @@
 
 const MAX_EDGE = 2200; // downscale before we ever touch the canvas, for speed
 
+// A 50MB+ original (uncompressed TIFF, RAW-adjacent export, a burst-mode
+// PNG screenshot) can hang the tab for tens of seconds trying to decode
+// before we ever get to downscale it. Reject early with a clear reason
+// instead of leaving the busy indicator spinning with no explanation.
+const MAX_FILE_BYTES = 45 * 1024 * 1024;
+
+export class PhotoError extends Error {}
+
 export type Photo = {
   bitmap: ImageBitmap;
   width: number;
@@ -54,6 +62,13 @@ function downscale(bitmap: ImageBitmap): ImageBitmap | Promise<ImageBitmap> {
 }
 
 export async function loadPhoto(file: File): Promise<Photo> {
+  if (file.size > MAX_FILE_BYTES) {
+    throw new PhotoError(
+      `That photo is ${(file.size / 1024 / 1024).toFixed(0)}MB, too large to ` +
+        "read here. Try a screenshot of it or re-export at a smaller size."
+    );
+  }
+
   let source: Blob = file;
 
   if (isHeic(file)) {
