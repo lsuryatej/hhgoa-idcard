@@ -90,6 +90,8 @@ export default function Generator() {
   const [ringColor, setRingColor] = useState<string>(YELLOW);
   const [stickerPos, setStickerPos] = useState<"bl" | "br" | "tl">("bl");
   const [domainTag, setDomainTag] = useState<string>("AI & AGENTS");
+  const [customDomain, setCustomDomain] = useState<string>("");
+  const [useCustomDomain, setUseCustomDomain] = useState<boolean>(false);
   const [flash, setFlash] = useState(false);
 
   const [photo, setPhoto] = useState<ImageBitmap | null>(null);
@@ -228,6 +230,10 @@ export default function Generator() {
     const canvas = canvasRef.current;
     if (!canvas || !ready || !hasArt) return;
     const brand = await loadBrand();
+    const activeDomainTag = useCustomDomain
+      ? customDomain.trim() || "BUILDER"
+      : domainTag;
+
     render(
       canvas,
       {
@@ -239,7 +245,7 @@ export default function Generator() {
         ringColor,
         teamName,
         stickerPos,
-        domainTag,
+        domainTag: activeDomainTag,
         crew: members.map((m) => ({
           bitmap: m.bitmap,
           name: m.name,
@@ -248,7 +254,7 @@ export default function Generator() {
       },
       brand
     );
-  }, [ready, hasArt, format, photo, focus, name, stack, ringColor, teamName, members, stickerPos, domainTag]);
+  }, [ready, hasArt, format, photo, focus, name, stack, ringColor, teamName, members, stickerPos, domainTag, customDomain, useCustomDomain]);
 
   useEffect(() => {
     // A timer rather than requestAnimationFrame on purpose: rAF is suspended
@@ -538,17 +544,23 @@ export default function Generator() {
     setBusy("Copying");
     triggerFlash();
     try {
-      const blob = await getBlob();
       if (typeof navigator !== "undefined" && navigator.clipboard && window.ClipboardItem) {
-        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+        const blobPromise = getBlob();
+        const item = new ClipboardItem({ "image/png": blobPromise });
+        await navigator.clipboard.write([item]);
         logClient("CLIPBOARD_COPY_SUCCESS", {});
         setError("✨ Image copied to clipboard! Press Cmd+V / Ctrl+V to paste.");
       } else {
+        const blob = await getBlob();
         download(blob);
         setError("Clipboard copy isn't supported in this browser, downloaded instead.");
       }
     } catch (err) {
       logClient("CLIPBOARD_COPY_ERROR", err);
+      try {
+        const blob = await getBlob();
+        download(blob);
+      } catch {}
       setError("Could not copy image automatically. Downloaded instead.");
     } finally {
       setBusy(null);
@@ -577,7 +589,20 @@ export default function Generator() {
     }
 
     try {
-      const blob = await getBlob();
+      const blobPromise = getBlob();
+
+      // Automatically write image to system clipboard synchronously during click gesture!
+      if (typeof navigator !== "undefined" && navigator.clipboard && window.ClipboardItem) {
+        try {
+          const item = new ClipboardItem({ "image/png": blobPromise });
+          await navigator.clipboard.write([item]);
+          logClient("AUTO_CLIPBOARD_SHARE_COPY_SUCCESS", {});
+        } catch (clipErr) {
+          logClient("AUTO_CLIPBOARD_SHARE_COPY_ERROR", clipErr);
+        }
+      }
+
+      const blob = await blobPromise;
       const file = new File([blob], filename, { type: "image/png" });
 
       const nav = navigator as Navigator & {
@@ -626,7 +651,7 @@ export default function Generator() {
       }
       if (!shareUrl) {
         setError(
-          "Posted without a link preview, so attach the downloaded PNG to your tweet."
+          "✨ Graphic copied to clipboard & downloaded! Press Cmd+V / Ctrl+V in X to attach."
         );
       }
     } catch (err) {
@@ -976,14 +1001,40 @@ export default function Generator() {
               <button
                 key={d}
                 type="button"
-                aria-pressed={domainTag === d}
-                onClick={() => setDomainTag(d)}
+                aria-pressed={!useCustomDomain && domainTag === d}
+                onClick={() => {
+                  setDomainTag(d);
+                  setUseCustomDomain(false);
+                }}
                 style={{ fontSize: 11, padding: "6px 10px" }}
               >
                 {d}
               </button>
             ))}
+            <button
+              type="button"
+              aria-pressed={useCustomDomain}
+              onClick={() => setUseCustomDomain(true)}
+              style={{ fontSize: 11, padding: "6px 10px" }}
+            >
+              Custom…
+            </button>
           </div>
+
+          {useCustomDomain && (
+            <label className="field" style={{ marginTop: 8 }}>
+              <span>Custom domain or specialty</span>
+              <input
+                value={customDomain}
+                maxLength={18}
+                placeholder="e.g. SOLANA, BIOTECH, QUANTUM"
+                onChange={(e) => {
+                  setCustomDomain(e.target.value);
+                  setUseCustomDomain(true);
+                }}
+              />
+            </label>
+          )}
           <span
             style={{
               fontSize: 10,
