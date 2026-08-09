@@ -579,23 +579,16 @@ export default function Generator() {
     setBusy("Preparing share");
     triggerFlash();
 
-    let tab: Window | null = null;
-    try {
-      tab = window.open(intentUrl(), "_blank");
-      logClient("WINDOW_OPEN_X_INTENT", { opened: Boolean(tab) });
-    } catch (err) {
-      logClient("WINDOW_OPEN_ERROR", err);
-      tab = null;
-    }
-
     try {
       const blobPromise = getBlob();
 
-      // Automatically write image to system clipboard synchronously during click gesture!
+      // Step 1: Write to Clipboard FIRST while document retains 100% focus!
+      let copiedToClipboard = false;
       if (typeof navigator !== "undefined" && navigator.clipboard && window.ClipboardItem) {
         try {
           const item = new ClipboardItem({ "image/png": blobPromise });
           await navigator.clipboard.write([item]);
+          copiedToClipboard = true;
           logClient("AUTO_CLIPBOARD_SHARE_COPY_SUCCESS", {});
         } catch (clipErr) {
           logClient("AUTO_CLIPBOARD_SHARE_COPY_ERROR", clipErr);
@@ -605,6 +598,7 @@ export default function Generator() {
       const blob = await blobPromise;
       const file = new File([blob], filename, { type: "image/png" });
 
+      // Step 2: Native mobile share sheet if supported
       const nav = navigator as Navigator & {
         canShare?: (d: ShareData) => boolean;
       };
@@ -613,14 +607,18 @@ export default function Generator() {
           logClient("MOBILE_SHARE_ATTEMPT", {});
           await nav.share({ files: [file], text: caption });
           logClient("MOBILE_SHARE_SUCCESS", {});
-          tab?.close();
           setBusy(null);
           return;
         } catch (err) {
           logClient("MOBILE_SHARE_ERROR", err);
+          if ((err as Error)?.name === "AbortError") {
+            setBusy(null);
+            return;
+          }
         }
       }
 
+      // Step 3: Vercel Blob upload for link preview card
       setBusy("Uploading");
       let shareUrl: string | undefined;
       try {
@@ -643,20 +641,38 @@ export default function Generator() {
       }
 
       download(blob);
-      const url = intentUrl(shareUrl);
-      if (tab) {
-        tab.location.href = url;
+
+      // Step 4: Mobile native X app deep link (twitter://) vs Web Intent (https://x.com)
+      const webUrl = intentUrl(shareUrl);
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+      if (isMobile) {
+        // Deep-link to open the installed native X mobile app directly
+        const mobileDeepLink = `twitter://post?message=${encodeURIComponent(
+          caption + (shareUrl ? ` ${shareUrl}` : "")
+        )}`;
+        const start = Date.now();
+        window.location.href = mobileDeepLink;
+        setTimeout(() => {
+          if (Date.now() - start < 2000) {
+            window.location.href = webUrl;
+          }
+        }, 1200);
       } else {
-        window.open(url, "_blank", "noopener,noreferrer");
+        window.open(webUrl, "_blank", "noopener,noreferrer");
       }
-      if (!shareUrl) {
+
+      if (copiedToClipboard) {
         setError(
           "✨ Graphic copied to clipboard & downloaded! Press Cmd+V / Ctrl+V in X to attach."
+        );
+      } else {
+        setError(
+          "Graphic downloaded! Attach the downloaded PNG to your tweet."
         );
       }
     } catch (err) {
       logClient("HANDLE_SHARE_ERROR", err);
-      tab?.close();
       setError("Share failed. Download the image and post it manually.");
     } finally {
       setBusy(null);
