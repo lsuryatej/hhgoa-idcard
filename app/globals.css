@@ -230,13 +230,22 @@ body::after {
   gap: 2px;
 }
 
-.seg button {
+.seg-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  border: 2px solid var(--ink);
+  background: var(--ink);
+  gap: 2px;
+}
+
+.seg button,
+.seg-wrap button {
   font-family: var(--mono);
   font-size: 11px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   font-weight: 700;
-  padding: 11px 6px;
+  padding: 10px 8px;
   border: 0;
   background: var(--paper);
   color: var(--ink);
@@ -244,13 +253,30 @@ body::after {
   transition: background 0.12s, color 0.12s;
 }
 
-.seg button[aria-pressed="true"] {
+.seg-wrap button {
+  flex: 1 1 calc(50% - 2px);
+  text-align: center;
+}
+
+.seg button[aria-pressed="true"],
+.seg-wrap button[aria-pressed="true"] {
   background: var(--pink);
   color: var(--paper);
 }
 
-.seg button:not([aria-pressed="true"]):hover {
+.seg button:not([aria-pressed="true"]):hover,
+.seg-wrap button:not([aria-pressed="true"]):hover {
   background: var(--yellow);
+}
+
+@media (max-width: 480px) {
+  .seg {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .seg button {
+    flex: 1 1 auto;
+  }
 }
 
 .field {

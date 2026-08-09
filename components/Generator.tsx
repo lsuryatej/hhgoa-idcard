@@ -996,7 +996,7 @@ export default function Generator() {
           >
             Domain specialty
           </span>
-          <div className="seg" style={{ flexWrap: "wrap" }}>
+          <div className="seg-wrap">
             {DOMAINS.map((d) => (
               <button
                 key={d}
@@ -1006,7 +1006,6 @@ export default function Generator() {
                   setDomainTag(d);
                   setUseCustomDomain(false);
                 }}
-                style={{ fontSize: 11, padding: "6px 10px" }}
               >
                 {d}
               </button>
@@ -1015,7 +1014,6 @@ export default function Generator() {
               type="button"
               aria-pressed={useCustomDomain}
               onClick={() => setUseCustomDomain(true)}
-              style={{ fontSize: 11, padding: "6px 10px" }}
             >
               Custom…
             </button>
