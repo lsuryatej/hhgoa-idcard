@@ -44,6 +44,20 @@ const RINGS = [
   { id: PINK, label: "Pink" },
 ];
 
+const DOMAINS = [
+  "AI & AGENTS",
+  "SYSTEMS & RUST",
+  "WEB3 & CRYPTO",
+  "DESIGN & UI",
+  "FULLSTACK",
+];
+
+const STICKER_POSITIONS: { id: "bl" | "br" | "tl"; label: string }[] = [
+  { id: "bl", label: "Bottom Left" },
+  { id: "br", label: "Bottom Right" },
+  { id: "tl", label: "Top Left" },
+];
+
 const ACCEPT = "image/*,.heic,.heif,.HEIC,.HEIF";
 
 function isIOS(): boolean {
@@ -74,10 +88,18 @@ export default function Generator() {
   const [stack, setStack] = useState("");
   const [teamName, setTeamName] = useState("");
   const [ringColor, setRingColor] = useState<string>(YELLOW);
+  const [stickerPos, setStickerPos] = useState<"bl" | "br" | "tl">("bl");
+  const [domainTag, setDomainTag] = useState<string>("AI & AGENTS");
+  const [flash, setFlash] = useState(false);
 
   const [photo, setPhoto] = useState<ImageBitmap | null>(null);
   const [focus, setFocus] = useState<Focus>(DEFAULT_FOCUS);
   const [members, setMembers] = useState<Member[]>([]);
+
+  const triggerFlash = useCallback(() => {
+    setFlash(true);
+    setTimeout(() => setFlash(false), 200);
+  }, []);
 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -216,6 +238,8 @@ export default function Generator() {
         stack,
         ringColor,
         teamName,
+        stickerPos,
+        domainTag,
         crew: members.map((m) => ({
           bitmap: m.bitmap,
           name: m.name,
@@ -224,7 +248,7 @@ export default function Generator() {
       },
       brand
     );
-  }, [ready, hasArt, format, photo, focus, name, stack, ringColor, teamName, members]);
+  }, [ready, hasArt, format, photo, focus, name, stack, ringColor, teamName, members, stickerPos, domainTag]);
 
   useEffect(() => {
     // A timer rather than requestAnimationFrame on purpose: rAF is suspended
@@ -285,6 +309,7 @@ export default function Generator() {
           });
           setFocus({ ...DEFAULT_FOCUS });
         }
+        triggerFlash();
       } catch (err) {
         setError(
           err instanceof PhotoError
@@ -465,6 +490,7 @@ export default function Generator() {
     logClient("CLICK_DOWNLOAD_PNG", { format, isIOS: isIOS(), name, stack });
     setError(null);
     setBusy("Encoding");
+    triggerFlash();
     try {
       const blob = await getBlob();
 
@@ -506,6 +532,29 @@ export default function Generator() {
     }
   };
 
+  const handleCopy = async () => {
+    logClient("CLICK_COPY_IMAGE", { format, name, stack });
+    setError(null);
+    setBusy("Copying");
+    triggerFlash();
+    try {
+      const blob = await getBlob();
+      if (typeof navigator !== "undefined" && navigator.clipboard && window.ClipboardItem) {
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+        logClient("CLIPBOARD_COPY_SUCCESS", {});
+        setError("✨ Image copied to clipboard! Press Cmd+V / Ctrl+V to paste.");
+      } else {
+        download(blob);
+        setError("Clipboard copy isn't supported in this browser, downloaded instead.");
+      }
+    } catch (err) {
+      logClient("CLIPBOARD_COPY_ERROR", err);
+      setError("Could not copy image automatically. Downloaded instead.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const intentUrl = (url?: string) => {
     const params = new URLSearchParams({ text: caption });
     if (url) params.set("url", url);
@@ -516,6 +565,7 @@ export default function Generator() {
     logClient("CLICK_SHARE_TO_X", { format, isIOS: isIOS(), caption });
     setError(null);
     setBusy("Preparing share");
+    triggerFlash();
 
     let tab: Window | null = null;
     try {
@@ -621,6 +671,7 @@ export default function Generator() {
           <span>{busy}…</span>
         </div>
       )}
+      {flash && <div className="stage-flash" />}
     </div>
   );
 
@@ -633,6 +684,13 @@ export default function Generator() {
           disabled={!hasArt || !!busy}
         >
           Download PNG
+        </button>
+        <button
+          className={`btn${hasArt && !busy ? " btn-glow" : ""}`}
+          onClick={handleCopy}
+          disabled={!hasArt || !!busy}
+        >
+          Copy Image
         </button>
         <button
           className={`btn btn-x${hasArt && !busy ? " btn-glow" : ""}`}
@@ -900,7 +958,58 @@ export default function Generator() {
               onChange={(e) => setStack(e.target.value)}
             />
           </label>
-          <p className="hint">
+          <span
+            style={{
+              fontSize: 10,
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              fontWeight: 700,
+              display: "block",
+              marginTop: 14,
+              marginBottom: 6,
+            }}
+          >
+            Domain specialty
+          </span>
+          <div className="seg" style={{ flexWrap: "wrap" }}>
+            {DOMAINS.map((d) => (
+              <button
+                key={d}
+                type="button"
+                aria-pressed={domainTag === d}
+                onClick={() => setDomainTag(d)}
+                style={{ fontSize: 11, padding: "6px 10px" }}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+          <span
+            style={{
+              fontSize: 10,
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              fontWeight: 700,
+              display: "block",
+              marginTop: 14,
+              marginBottom: 6,
+            }}
+          >
+            Sticker position
+          </span>
+          <div className="seg">
+            {STICKER_POSITIONS.map((sp) => (
+              <button
+                key={sp.id}
+                type="button"
+                aria-pressed={stickerPos === sp.id}
+                onClick={() => setStickerPos(sp.id)}
+              >
+                {sp.label}
+              </button>
+            ))}
+          </div>
+          <p className="hint" style={{ marginTop: 12 }}>
             Builder class: <strong>{builderClass(name, stack)}</strong> — derived
             from your name and stack, so it never changes on you.
           </p>

@@ -506,6 +506,20 @@ body::after {
   overflow: hidden;
 }
 
+.stage-flash {
+  position: absolute;
+  inset: 0;
+  background: #ffffff;
+  pointer-events: none;
+  z-index: 50;
+  animation: flash-pulse 0.2s cubic-bezier(0.1, 0.9, 0.2, 1) forwards;
+}
+
+@keyframes flash-pulse {
+  0% { opacity: 0.95; }
+  100% { opacity: 0; }
+}
+
 .stage canvas {
   display: block;
   width: 100%;

@@ -32,6 +32,8 @@ export type RenderInput = {
   ringColor: string;
   crew: CrewMember[];
   teamName: string;
+  stickerPos?: "bl" | "br" | "tl";
+  domainTag?: string;
 };
 
 export const SIZES: Record<Format, { w: number; h: number }> = {
@@ -435,9 +437,15 @@ function renderPfp(
     ctx.restore();
   }
 
-  // गोवा sticker sits fully inside the photo circle. X crops avatars to the
-  // inscribed circle, so anything past `rPhoto` on the diagonal would be lost.
-  drawGoaMark(ctx, brand.goa, cx + 215, cy + 225, 132, -14);
+  // Goa sticker positioning based on user preference
+  const pos = input.stickerPos ?? "bl";
+  if (pos === "tl") {
+    drawGoaMark(ctx, brand.goa, cx - 215, cy - 225, 132, 14);
+  } else if (pos === "br") {
+    drawGoaMark(ctx, brand.goa, cx + 215, cy - 225, 132, 14);
+  } else {
+    drawGoaMark(ctx, brand.goa, cx + 215, cy + 225, 132, -14);
+  }
 
   grain(ctx, S, S, 0.05);
 }
@@ -615,9 +623,15 @@ function renderCard(
   ctx.lineWidth = 6;
   ctx.strokeRect(photoX + 3, photoY + 3, photoSize - 6, photoSize - 6);
 
-  // Sticker on the photo's bottom-left corner: it fills the dead paper beside
-  // the window without landing on the face, which sits high in most portraits.
-  drawGoaMark(ctx, brand.goa, photoX + 4, photoY + photoSize - 72, 138, -14);
+  // Sticker positioning: default bottom-left, or top-left / bottom-right.
+  const pos = input.stickerPos ?? "bl";
+  if (pos === "tl") {
+    drawGoaMark(ctx, brand.goa, photoX + 72, photoY + 72, 138, 14);
+  } else if (pos === "br") {
+    drawGoaMark(ctx, brand.goa, photoX + photoSize - 72, photoY + photoSize - 72, 138, 14);
+  } else {
+    drawGoaMark(ctx, brand.goa, photoX + 4, photoY + photoSize - 72, 138, -14);
+  }
 
   // Name.
   const name = (input.name.trim() || "YOUR NAME").toUpperCase();
@@ -651,6 +665,9 @@ function renderCard(
   ctx.fillStyle = INK;
   ctx.textBaseline = "top";
   tracked(ctx, "BUILDER CLASS", shell.innerX + 18, bandY + 12, 5, "left");
+
+  const domainLabel = (input.domainTag || "AI & AGENTS").toUpperCase();
+  tracked(ctx, `[${domainLabel}]`, shell.innerX + shell.innerW - 18, bandY + 12, 3, "right");
 
   const clsSize = fitFont(ctx, cls, shell.innerW - 40, 52, (s) => `700 ${s}px ${DISPLAY}`);
   ctx.font = `700 ${clsSize}px ${DISPLAY}`;

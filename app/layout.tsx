@@ -9,6 +9,10 @@ export const metadata: Metadata = {
   title: "Frame in Goa — Hacker House Goa 2026",
   description:
     "Drop in a photo, get an HH Goa 2026 profile frame or builder pass, and post it to X. No login, no crop step.",
+  icons: {
+    icon: "/brand/goa_hindi.svg",
+    apple: "/brand/goa_hindi.svg",
+  },
   openGraph: {
     title: "Frame in Goa — Hacker House Goa 2026",
     description:
