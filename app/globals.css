@@ -168,10 +168,18 @@ body::after {
   align-items: start;
 }
 
-/* On phones the controls lead, so the first thing in reach is the upload
-   rather than an empty preview with its call to action below the fold. */
+/* On phones, before a photo exists the controls lead so the first thing in
+   reach is the upload rather than an empty preview with its call to action
+   below the fold. Once art exists, the preview jumps to the top instead —
+   otherwise every zoom/rotate tweak from the controls below meant scrolling
+   past three panels just to see the result. */
 .stage-col {
   order: 2;
+}
+
+.workbench[data-has-art="true"] .stage-col {
+  order: 0;
+  margin-bottom: 8px;
 }
 
 @media (min-width: 940px) {

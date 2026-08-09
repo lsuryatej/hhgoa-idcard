@@ -45,6 +45,15 @@ const RINGS = [
 
 const ACCEPT = "image/*,.heic,.heif,.HEIC,.HEIF";
 
+function isIOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return (
+    /iP(hone|od|ad)/.test(navigator.userAgent) ||
+    // iPadOS 13+ identifies as "MacIntel" — touch points is what gives it away.
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
 function slug(s: string) {
   return (
     s
@@ -72,6 +81,12 @@ export default function Generator() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+
+  // Read in an effect, not during render: navigator is unavailable during
+  // SSR, and checking it inline would make the server-rendered HTML and the
+  // client's first render disagree (a hydration mismatch).
+  const [iosDownload, setIosDownload] = useState(false);
+  useEffect(() => setIosDownload(isIOS()), []);
 
   const isCrew = format === "crew";
   const hasArt = isCrew ? members.length > 0 : photo !== null;
@@ -369,7 +384,29 @@ export default function Generator() {
     setError(null);
     setBusy("Encoding");
     try {
-      download(await getBlob());
+      const blob = await getBlob();
+
+      // iOS Safari doesn't honour <a download> on a blob URL — it just opens
+      // the image in the tab instead of saving it, which is what "download
+      // is failing" was describing. The one path that reliably reaches
+      // Photos on iOS is the native share sheet's "Save Image" action.
+      if (isIOS()) {
+        const nav = navigator as Navigator & {
+          canShare?: (d: ShareData) => boolean;
+        };
+        const file = new File([blob], filename, { type: "image/png" });
+        if (nav.canShare?.({ files: [file] })) {
+          try {
+            await nav.share({ files: [file] });
+            return;
+          } catch (err) {
+            if ((err as Error)?.name === "AbortError") return;
+            // Fall through to the anchor-click method as a last resort.
+          }
+        }
+      }
+
+      download(blob);
     } catch {
       setError("Export failed. Reload and try once more.");
     } finally {
@@ -476,7 +513,7 @@ export default function Generator() {
   const ratio = SIZES[format];
 
   return (
-    <div className="workbench">
+    <div className="workbench" data-has-art={hasArt}>
       <div className="stage-col">
         <div className="stage">
           {hasArt ? (
@@ -526,6 +563,12 @@ export default function Generator() {
         </div>
 
         {error && <p className="notice notice-error">{error}</p>}
+        {!error && hasArt && iosDownload && (
+          <p className="notice">
+            Download opens the share sheet on iPhone — pick{" "}
+            <strong>Save Image</strong> to send it to Photos.
+          </p>
+        )}
         {!error && hasArt && (
           <p className="notice">
             Opens x.com — sign in there first if you&apos;re not already.
@@ -753,7 +796,7 @@ export default function Generator() {
                 <input
                   value={name}
                   maxLength={22}
-                  placeholder="Surya Tej"
+                  placeholder="0xBuilder"
                   onChange={(e) => setName(e.target.value)}
                 />
               </label>
